@@ -1,0 +1,4 @@
+/Users/gaoshihao/Documents/CodeField/projects/compiler_lesson/hw/hw3/assign3/cmake-build-debug/CMakeFiles/intrinsics_gen.dir
+/Users/gaoshihao/Documents/CodeField/projects/compiler_lesson/hw/hw3/assign3/cmake-build-debug/CMakeFiles/assignment3.dir
+/Users/gaoshihao/Documents/CodeField/projects/compiler_lesson/hw/hw3/assign3/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/gaoshihao/Documents/CodeField/projects/compiler_lesson/hw/hw3/assign3/cmake-build-debug/CMakeFiles/rebuild_cache.dir

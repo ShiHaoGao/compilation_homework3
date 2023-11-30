@@ -1,0 +1,4 @@
+/root/hw3/assign3/build/CMakeFiles/edit_cache.dir
+/root/hw3/assign3/build/CMakeFiles/rebuild_cache.dir
+/root/hw3/assign3/build/CMakeFiles/assignment3.dir
+/root/hw3/assign3/build/CMakeFiles/intrinsics_gen.dir
