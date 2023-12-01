@@ -5,3 +5,5 @@ CMakeFiles/assignment3.dir/LLVMAssignment.cpp.o
  /root/hw3/assign3/Dataflow.h
  /root/hw3/assign3/LLVMAssignment.cpp
  /root/hw3/assign3/Liveness.h
+ /root/hw3/assign3/PTA.h
+ /root/hw3/assign3/utils.h

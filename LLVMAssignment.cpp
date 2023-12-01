@@ -31,66 +31,22 @@
 #include <llvm/Support/raw_ostream.h>
 
 #include "Liveness.h"
+#include "PTA.h"
+#include "utils.h"
+
 using namespace llvm;
+
 static ManagedStatic<LLVMContext> GlobalContext;
+
 static LLVMContext &getGlobalContext() { return *GlobalContext; }
-
-#define Info Log(LogLevel::info)
-#define Warning Log(LogLevel::warning)
-#define Debug Log(LogLevel::debug)
-#define Error Log(LogLevel::error)
-
-enum class LogLevel {
-    info = 0,
-    debug,
-    warning,
-    error
-};
-
-class Log {
-public:
-    explicit Log(LogLevel level) : _level(level) {}
-
-    ~Log() {
-        output();
-    }
-
-    Log &operator<<(const std::string &message) {
-        _message += message;
-        return *this;
-    }
-
-    Log &operator<<(const int &message) {
-        _message += std::to_string(message);
-        return *this;
-    }
-
-private:
-    LogLevel _level;
-    std::string _message;
-
-    void output();
-};
-
-void Log::output() {
-    if (_level == LogLevel::info) {
-        errs() << "\033[32m[Info]: \033[0m" << _message << '\n';
-    } else if (_level == LogLevel::warning) {
-        errs() << "\033[35m[Warning]: 033[0m" << _message << '\n';
-    } else if (_level == LogLevel::error) {
-        errs() << "\033[31m[Error]: \033[0m" << _message << '\n';
-    } else {
-        errs() << "\033[34m[Debug]: \033[0m" << _message << '\n';
-    }
-}
-
 
 struct EnableFunctionOptPass : public FunctionPass {
     static char ID;
-    EnableFunctionOptPass() :FunctionPass(ID) {}
-    bool runOnFunction(Function & F) override {
-        if (F.hasFnAttribute(Attribute::OptimizeNone))
-        {
+
+    EnableFunctionOptPass() : FunctionPass(ID) {}
+
+    bool runOnFunction(Function &F) override {
+        if (F.hasFnAttribute(Attribute::OptimizeNone)) {
             F.removeFnAttr(Attribute::OptimizeNone);
         }
         return true;
@@ -113,46 +69,49 @@ struct FuncPtrPass : public ModulePass {
         return false;
     }
 };
-
-
-char FuncPtrPass::ID = 0;
-static RegisterPass<FuncPtrPass> X("funcptrpass", "Print function call instruction");
+//
+//
+//char FuncPtrPass::ID = 0;
+//static RegisterPass<FuncPtrPass> X("funcptrpass", "Print function call instruction");
 
 char Liveness::ID = 0;
 static RegisterPass<Liveness> Y("liveness", "Liveness Dataflow Analysis");
 
+char PTA::ID = 0;
+static RegisterPass<PTA> X("PTA", "Print function call instruction");
+
 static cl::opt<std::string>
-InputFilename(cl::Positional,
-              cl::desc("<filename>.bc"),
-              cl::init(""));
+        InputFilename(cl::Positional,
+                      cl::desc("<filename>.bc"),
+                      cl::init(""));
 
 
 int main(int argc, char **argv) {
-   LLVMContext &Context = getGlobalContext();
-   SMDiagnostic Err;
-   // Parse the command line to read the Inputfilename
-   cl::ParseCommandLineOptions(argc, argv,
-                              "FuncPtrPass \n My first LLVM too which does not do much.\n");
+    LLVMContext &Context = getGlobalContext();
+    SMDiagnostic Err;
+    // Parse the command line to read the Inputfilename
+    cl::ParseCommandLineOptions(argc, argv,
+                                "FuncPtrPass \n My first LLVM too which does not do much.\n");
 
 
-   // Load the input module
-   std::unique_ptr<Module> M = parseIRFile(InputFilename, Err, Context);
-   if (!M) {
-      Err.print(argv[0], errs());
-      return 1;
-   }
+    // Load the input module
+    std::unique_ptr<Module> M = parseIRFile(InputFilename, Err, Context);
+    if (!M) {
+        Err.print(argv[0], errs());
+        return 1;
+    }
 
-   llvm::legacy::PassManager Passes;
+    llvm::legacy::PassManager Passes;
 #if LLVM_VERSION_MAJOR == 5
-   Passes.add(new EnableFunctionOptPass());
+    Passes.add(new EnableFunctionOptPass());
 #endif
-   ///Transform it to SSA
-   Passes.add(llvm::createPromoteMemoryToRegisterPass());
+    ///Transform it to SSA
+    Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
-   /// Your pass to print Function and Call Instructions
-   Passes.add(new Liveness());
-   //Passes.add(new FuncPtrPass());
-   Passes.run(*M.get());
+    /// Your pass to print Function and Call Instructions
+    Passes.add(new Liveness());
+//   Passes.add(new PTA());
+    Passes.run(*M.get());
 #ifndef NDEBUG
 //   system("pause");
 #endif
