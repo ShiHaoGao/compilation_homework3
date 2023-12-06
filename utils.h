@@ -47,13 +47,13 @@ private:
 
 void Log::output() {
     if (_level == LogLevel::info) {
-        std::cout << "\033[32m[Info]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[32m[Info]: " << _message << "\033[0m ";
     } else if (_level == LogLevel::warning) {
-        std::cout << "\033[35m[Warning]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[35m[Warning]: " << _message << "\033[0m ";
     } else if (_level == LogLevel::error) {
-        std::cout << "\033[31m[Error]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[31m[Error]: " << _message << "\033[0m ";
     } else {
-        std::cout << "\033[34m[Debug]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[34m[Debug]: " << _message << "\033[0m ";
     }
 }
 

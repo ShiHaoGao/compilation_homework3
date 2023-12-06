@@ -178,8 +178,8 @@ struct PTAInfo {
         return info.find(val) != info.end();
     }
 
-    std::set<Value *> getPTS(Value *p) {
-        return info[p];
+    std::set<Value *> getPTS(Value *p) const {
+        return info.find(p)->second;
     }
 
     void setPointerAndPTS(Value *val, std::set<Value *> pts) {
@@ -213,13 +213,27 @@ struct PTAInfo {
 //}
 
 inline raw_ostream &operator<<(raw_ostream &out, const PTAInfo &ptaInfo) {
+    static int valNum = 0;
     out << "{ ";
     for (const auto &item: ptaInfo.info) {
         auto ptr = item.first;
         auto pts = item.second;
-        out << ptr->getName() << " -> { ";
+        std::string ptrName = ptr->getName();
+        if (ptrName.empty()) {
+            ++valNum;
+            ptr->setName("%" + std::to_string(valNum));
+            ptrName = ptr->getName();
+        }
+        out << ptrName << " -> { ";
         for (auto p: pts) {
-            out << p->getName() << ", ";
+            std::string pName = p->getName();
+            if (pName.empty()) {
+                ++valNum;
+                ptr->setName("%" + std::to_string(valNum));
+                pName = p->getName();
+//                pName = std::to_string(p->getValueID());
+            }
+            out << pName << ", ";
         }
         out << "}; ";
     }
@@ -242,18 +256,37 @@ public:
                 dest->setPointerAndPTS(ptr, srcPTS);  // 创建这个value，把src中的pts copy过来。
             } else {
                 auto destPTS = dest->getPTS(ptr);
-                if (ptr->getType()->getTypeID() == Type::StructTyID) { // 如果value 是结构体类型
+                if (ptr->getType()->getPointerElementType()->isStructTy() || ptr->getType()->getPointerElementType()->isArrayTy()) { // 如果value 是结构体指针类型
+                    auto destPtr = *(destPTS.begin());
+                    auto srcPtr = *(srcPTS.begin());
                     if (srcPTS.size() > 1 || destPTS.size() > 1)
                         Error << "Pts size of struct is more then one! \n";
-                    else if (srcPTS.size() == 1 && destPTS.size() == 1 && *(srcPTS.begin()) != *(destPTS.begin())) {
-                        StructType* myStructType = StructType::create({Type::getInt32Ty(context), Type::getFloatTy(context)}, "MyStruct");
-                        Value* innerPtr = new Value(myStructType, 0);
-                    } else {
+                    else if (srcPTS.size() == 1 && destPTS.size() == 1 && destPtr != srcPtr) {
+                        // 找到functionPointer type的Value
+                        auto p = destPtr;
+                        auto q = srcPtr;
+                        while (p->getType()->getPointerElementType()->isStructTy()) {
+                            if (!dest->hasPointer(p))
+                                Error << "Don't have dest pointer.\n";
+                            p = *(dest->getPTS(p).begin());
+                        }
+                        while (q->getType()->getPointerElementType()->isStructTy()) {
+                            if (!dest->hasPointer(q))
+                                Error << "Don't have dest pointer.\n";
+                            q = *(src.getPTS(q).begin());
+                        }
+                        // 合并
+                        auto tmpSet = dest->getPTS(p);
+                        tmpSet.merge(src.getPTS(q));
+                        dest->setPointerAndPTS(p, tmpSet);
 
+                    } else {
+                        std::set<Value*> mergedSet;
+                        std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(), std::inserter(mergedSet, mergedSet.begin()));
+                        dest->setPointerAndPTS(ptr, mergedSet);
                     }
-                    if (*srcPTS.begin())
                 }
-                else {
+                else { // 非结构体指针类型
                     std::set<Value*> mergedSet;
                     std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(), std::inserter(mergedSet, mergedSet.begin()));
                     dest->setPointerAndPTS(ptr, mergedSet);
@@ -292,7 +325,23 @@ public:
         }
     }
 
+    void printResults(raw_ostream &out) const {
+        for (const auto &result: functionCallResult) {
+            out << result.first << " : ";
+            const auto &funcNames = result.second;
+            for (auto iter = funcNames.begin(); iter != funcNames.end(); iter++) {
+                if (iter != funcNames.begin()) {
+                    out << ", ";
+                }
+                out << *iter;
+            }
+            out << "\n";
+        }
+    }
+
 private:
+
+    std::map<unsigned, std::set<std::string>> functionCallResult;
 
     void evalStoreInst(StoreInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalStoreInst \n";
@@ -369,6 +418,9 @@ private:
 
     void evalCallInst(CallInst* pInst, PTAInfo * pPTAInfo) {
         Info << "evalCallInst \n";
+
+        // 查到call的pts，记录行号，加入result中。
+
     }
 
 };
