@@ -248,7 +248,7 @@ public:
 
     void merge(PTAInfo *dest, const PTAInfo &src) override {
 
-        for (const auto & it : src.info) {
+        for (const auto &it: src.info) {
             auto ptr = it.first;
             auto srcPTS = it.second;
 
@@ -256,7 +256,8 @@ public:
                 dest->setPointerAndPTS(ptr, srcPTS);  // 创建这个value，把src中的pts copy过来。
             } else {
                 auto destPTS = dest->getPTS(ptr);
-                if (ptr->getType()->getPointerElementType()->isStructTy() || ptr->getType()->getPointerElementType()->isArrayTy()) { // 如果value 是结构体指针类型
+                if (ptr->getType()->getPointerElementType()->isStructTy() ||
+                    ptr->getType()->getPointerElementType()->isArrayTy()) { // 如果value 是结构体指针类型
                     auto destPtr = *(destPTS.begin());
                     auto srcPtr = *(srcPTS.begin());
                     if (srcPTS.size() > 1 || destPTS.size() > 1)
@@ -281,14 +282,15 @@ public:
                         dest->setPointerAndPTS(p, tmpSet);
 
                     } else {
-                        std::set<Value*> mergedSet;
-                        std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(), std::inserter(mergedSet, mergedSet.begin()));
+                        std::set<Value *> mergedSet;
+                        std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(),
+                                       std::inserter(mergedSet, mergedSet.begin()));
                         dest->setPointerAndPTS(ptr, mergedSet);
                     }
-                }
-                else { // 非结构体指针类型
-                    std::set<Value*> mergedSet;
-                    std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(), std::inserter(mergedSet, mergedSet.begin()));
+                } else { // 非结构体指针类型
+                    std::set<Value *> mergedSet;
+                    std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(),
+                                   std::inserter(mergedSet, mergedSet.begin()));
                     dest->setPointerAndPTS(ptr, mergedSet);
                 }
             }
@@ -350,11 +352,10 @@ private:
 
         if (pPTAInfo->hasPointer(to)) {
             if (pPTAInfo->hasPointer(from) || isa<Function>(from))
-                pPTAInfo->setPointerAndPTS(to, std::set<Value*>{from});
+                pPTAInfo->setPointerAndPTS(to, std::set < Value * > {from});
             else
                 Error << "Don't have from. \n";
-        }
-        else {
+        } else {
             Error << "StoreInst don't have from pointer and to pointer in PTAInfo. \n";
         }
 
@@ -363,7 +364,7 @@ private:
     void evalAllocaInst(AllocaInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalAllocaInst \n";
         auto *result = dyn_cast<Value>(pInst);
-        pPTAInfo->setPointerAndPTS(result, std::set<Value*>{});
+        pPTAInfo->setPointerAndPTS(result, std::set < Value * > {});
     }
 
     void evalLoadInst(LoadInst *pInst, PTAInfo *pPTAInfo) {
@@ -375,13 +376,12 @@ private:
         if (pPTAInfo->hasPointer(pointer)) {
             auto pointerPTS = pPTAInfo->getPTS(pointer);
             pPTAInfo->setPointerAndPTS(result, pointerPTS);
-        }
-        else {
+        } else {
             Debug << "evalLoadInst fail! The Pointer that the loadInst loads from isn't exist in PTS! \n";
         }
     }
 
-    void evalGetElementPtrInst(GetElementPtrInst* pInst, PTAInfo * pPTAInfo) {
+    void evalGetElementPtrInst(GetElementPtrInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalGetElementPtrInst \n";
         Value *ptr = pInst->getPointerOperand();
         auto *result = dyn_cast<Value>(pInst);
@@ -393,34 +393,72 @@ private:
         if (ptrPTS.size() > 1)
             Debug << "The structure pointer's PTS has more then one pointer. \n";
 
-        pPTAInfo->setPointerAndPTS(result, std::set<Value*>{});
+        pPTAInfo->setPointerAndPTS(result, std::set < Value * > {});
 
         if (ptrPTS.empty()) {  // store mode
             ptrPTS.insert(result);
             pPTAInfo->setPointerAndPTS(ptr, ptrPTS);
-        }
-        else {   // load mode
+        } else {   // load mode
             auto innerPtr = *(ptrPTS.begin());
             if (!pPTAInfo->hasPointer(innerPtr))
                 Debug << "Wrong Pointer. \n";
-            pPTAInfo->setPointerAndPTS(result, std::set<Value*>{innerPtr});
+            pPTAInfo->setPointerAndPTS(result, std::set < Value * > {innerPtr});
         }
 
     }
 
-    void evalMemCpyInst(MemCpyInst* pInst, PTAInfo * pPTAInfo) {
+    void evalMemCpyInst(MemCpyInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalMemCpyInst \n";
     }
 
-    void evalReturnInst(ReturnInst* pInst, PTAInfo * pPTAInfo) {
+    void evalReturnInst(ReturnInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalReturnInst \n";
     }
 
-    void evalCallInst(CallInst* pInst, PTAInfo * pPTAInfo) {
+    void evalCallInst(CallInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalCallInst \n";
+        auto *callResult = dyn_cast<Value>(pInst);
+        Value *funcPointer = pInst->getCalledOperand();
+        unsigned lineno = pInst->getDebugLoc().getLine();
 
-        // 查到call的pts，记录行号，加入result中。
+        if (functionCallResult.find(lineno) == functionCallResult.end())
+            functionCallResult[lineno] = std::set<std::string> {};
 
+        auto mayCallFuncSet = buildMayCallSet(funcPointer, pPTAInfo);
+        // 在这里分别调用进去
+
+        std::set<std::string> mayCallSet;
+        for (auto* val : mayCallFuncSet) {
+            mayCallSet.insert(val->getName());
+        }
+
+        functionCallResult[lineno].merge(mayCallSet);
+
+    }
+
+    std::set<Value*> buildMayCallSet(Value* funcPointer, PTAInfo* pPTAInfo) {
+        std::set<Value*> mayCallSet{};
+
+        std::set<Value*> worklist;
+        worklist.insert(funcPointer);
+        Debug << "1";
+        while (!worklist.empty()) {
+            auto val = *worklist.begin();
+            worklist.erase(val);
+            if (isa<Function>(val)) {
+                mayCallSet.insert(val);
+            } else if (pPTAInfo->hasPointer(val)) {
+                auto pts = pPTAInfo->getPTS(val);
+                for (auto *ptr: pts) {
+                    worklist.insert(ptr);
+                }
+            } else {
+                Error << "Don't have been called function Pointer in PTAInfo. \n";
+            }
+        }
+        Debug << "2";
+
+        return mayCallSet;
     }
 
 };
@@ -452,7 +490,7 @@ public:
 
         compForwardDataflow(&*f, &visitor, &result, initVal);
         printDataflowResult<PTAInfo>(errs(), result);
-
+        visitor.printResults(errs());
         return false;
     }
 };
