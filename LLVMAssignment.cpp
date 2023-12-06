@@ -102,15 +102,15 @@ int main(int argc, char **argv) {
     }
 
     llvm::legacy::PassManager Passes;
-#if LLVM_VERSION_MAJOR == 5
+#if LLVM_VERSION_MAJOR == 10
     Passes.add(new EnableFunctionOptPass());
 #endif
     ///Transform it to SSA
     Passes.add(llvm::createPromoteMemoryToRegisterPass());
 
     /// Your pass to print Function and Call Instructions
-    Passes.add(new Liveness());
-//   Passes.add(new PTA());
+//    Passes.add(new Liveness());
+   Passes.add(new PTA());
     Passes.run(*M.get());
 #ifndef NDEBUG
 //   system("pause");

@@ -31,14 +31,12 @@ public:
     /// @isforward true to compute dfval forward, otherwise backward
     virtual void compDFVal(BasicBlock *block, T *dfval, bool isforward) {
         if (isforward) {
-            for (BasicBlock::iterator ii = block->begin(), ie = block->end();
-                 ii != ie; ++ii) {
+            for (BasicBlock::iterator ii = block->begin(), ie = block->end(); ii != ie; ++ii) {
                 Instruction *inst = &*ii;
                 compDFVal(inst, dfval);
             }
         } else {
-            for (BasicBlock::reverse_iterator ii = block->rbegin(), ie = block->rend();
-                 ii != ie; ++ii) {
+            for (BasicBlock::reverse_iterator ii = block->rbegin(), ie = block->rend(); ii != ie; ++ii) {
                 Instruction *inst = &*ii;
                 compDFVal(inst, dfval);
             }
@@ -69,21 +67,53 @@ struct DataflowResult {
     typedef typename std::map<BasicBlock *, std::pair<T, T> > Type;
 };
 
-/// 
+///
 /// Compute a forward iterated fixedpoint dataflow function, using a user-supplied
 /// visitor function. Note that the caller must ensure that the function is
 /// in fact a monotone function, as otherwise the fixedpoint may not terminate.
-/// 
+///
 /// @param fn The function
 /// @param visitor A function to compute dataflow vals
-/// @param result The results of the dataflow 
+/// @param result The results of the dataflow
 /// @initval the Initial dataflow value
 template<class T>
 void compForwardDataflow(Function *fn,
                          DataflowVisitor<T> *visitor,
                          typename DataflowResult<T>::Type *result,
                          const T &initval) {
-    return;
+
+    std::set<BasicBlock *> worklist;
+
+    // Initialize the worklist with all exit blocks
+    for (auto & bi : *fn) {
+        BasicBlock *bb = &bi;
+        result->insert(std::make_pair(bb, std::make_pair(initval, initval)));
+        worklist.insert(bb);
+    }
+
+    // Iteratively compute the dataflow result
+    while (!worklist.empty()) {
+        BasicBlock *bb = *worklist.begin();
+        worklist.erase(worklist.begin());
+
+        // Merge all incoming value to bbOutVal
+        T bbInVal = (*result)[bb].first;
+        for (auto si = pred_begin(bb), se = pred_end(bb); si != se; si++) {
+            BasicBlock *succ = *si;
+            visitor->merge(&bbInVal, (*result)[succ].second);
+        }
+
+        (*result)[bb].first = bbInVal;
+        visitor->compDFVal(bb, &bbInVal, true);
+
+        // If outgoing value changed, propagate it along the CFG
+        if (bbInVal == (*result)[bb].second) continue;
+        (*result)[bb].second = bbInVal;
+
+        for (succ_iterator pi = succ_begin(bb), pe = succ_end(bb); pi != pe; pi++) {
+            worklist.insert(*pi);
+        }
+    }
 }
 
 ///
@@ -115,19 +145,19 @@ void compBackwardDataflow(Function *fn,
         BasicBlock *bb = *worklist.begin();
         worklist.erase(worklist.begin());
 
-        // Merge all incoming value
-        T bbexitval = (*result)[bb].second;
+        // Merge all incoming value to bbOutVal
+        T bbOutVal = (*result)[bb].second;
         for (auto si = succ_begin(bb), se = succ_end(bb); si != se; si++) {
             BasicBlock *succ = *si;
-            visitor->merge(&bbexitval, (*result)[succ].first);
+            visitor->merge(&bbOutVal, (*result)[succ].first);
         }
 
-        (*result)[bb].second = bbexitval;
-        visitor->compDFVal(bb, &bbexitval, false);
+        (*result)[bb].second = bbOutVal;
+        visitor->compDFVal(bb, &bbOutVal, false);
 
         // If outgoing value changed, propagate it along the CFG
-        if (bbexitval == (*result)[bb].first) continue;
-        (*result)[bb].first = bbexitval;
+        if (bbOutVal == (*result)[bb].first) continue;
+        (*result)[bb].first = bbOutVal;
 
         for (pred_iterator pi = pred_begin(bb), pe = pred_end(bb); pi != pe; pi++) {
             worklist.insert(*pi);

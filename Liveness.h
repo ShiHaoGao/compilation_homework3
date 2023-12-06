@@ -57,14 +57,13 @@ public:
     }
 
     void compDFVal(Instruction *inst, LivenessInfo *dfval) override {
-        // 如果inst是llvm.debug.xxx 就直接return
+        // 如果inst是llvm.dbg.xxx 就直接return
         if (isa<DbgInfoIntrinsic>(inst)) return;
-        dfval->LiveVars.erase(inst);
-        for (User::op_iterator oi = inst->op_begin(), oe = inst->op_end();
-             oi != oe; ++oi) {
+        dfval->LiveVars.erase(inst);  // kill
+        for (User::op_iterator oi = inst->op_begin(), oe = inst->op_end(); oi != oe; ++oi) {
             Value *val = *oi;
             if (isa<Instruction>(val))
-                dfval->LiveVars.insert(cast<Instruction>(val));
+                dfval->LiveVars.insert(cast<Instruction>(val)); // gen
         }
     }
 };
@@ -78,11 +77,13 @@ public:
     Liveness() : FunctionPass(ID) {}
 
     bool runOnFunction(Function &F) override {
+
+        Info << "========================================================================================";
         F.dump();
         LivenessVisitor visitor;
         DataflowResult<LivenessInfo>::Type result;
         LivenessInfo initval{};
-//        Info << "===========================================";
+
         compBackwardDataflow(&F, &visitor, &result, initval);
         printDataflowResult<LivenessInfo>(errs(), result);
         return false;
