@@ -221,7 +221,7 @@ inline raw_ostream &operator<<(raw_ostream &out, const PTAInfo &ptaInfo) {
         for (auto p: pts) {
             out << p->getName() << ", ";
         }
-        out << "  }; ";
+        out << "}; ";
     }
     out << "  } \n";
     return out;
@@ -238,13 +238,26 @@ public:
             auto ptr = it.first;
             auto srcPTS = it.second;
 
-            if (!dest->hasPointer(ptr)) {
-                dest->setPointerAndPTS(ptr, srcPTS);
+            if (!dest->hasPointer(ptr)) {  // 如果在dest中不存在这个value
+                dest->setPointerAndPTS(ptr, srcPTS);  // 创建这个value，把src中的pts copy过来。
             } else {
                 auto destPTS = dest->getPTS(ptr);
-                std::set<Value*> mergedSet;
-                std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(), std::inserter(mergedSet, mergedSet.begin()));
-                dest->setPointerAndPTS(ptr, mergedSet);
+                if (ptr->getType()->getTypeID() == Type::StructTyID) { // 如果value 是结构体类型
+                    if (srcPTS.size() > 1 || destPTS.size() > 1)
+                        Error << "Pts size of struct is more then one! \n";
+                    else if (srcPTS.size() == 1 && destPTS.size() == 1 && *(srcPTS.begin()) != *(destPTS.begin())) {
+                        StructType* myStructType = StructType::create({Type::getInt32Ty(context), Type::getFloatTy(context)}, "MyStruct");
+                        Value* innerPtr = new Value(myStructType, 0);
+                    } else {
+
+                    }
+                    if (*srcPTS.begin())
+                }
+                else {
+                    std::set<Value*> mergedSet;
+                    std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(), std::inserter(mergedSet, mergedSet.begin()));
+                    dest->setPointerAndPTS(ptr, mergedSet);
+                }
             }
 
         }
@@ -259,7 +272,7 @@ public:
         // 根据指令的类型去进行相应的处理操作
         if (auto *allocaInst = dyn_cast<AllocaInst>(inst)) {
             // 好像用不着，嘿嘿
-            evalAllocaInst(allocaInst, dfval);
+            evalAllocaInst(allocaInst, dfVal);
         } else if (auto *storeInst = dyn_cast<StoreInst>(inst)) {
             evalStoreInst(storeInst, dfVal);
         } else if (auto *loadInst = dyn_cast<LoadInst>(inst)) {
@@ -275,38 +288,87 @@ public:
         } else if (auto *callInst = dyn_cast<CallInst>(inst)) {
             evalCallInst(callInst, dfVal);
         } else {
-            Debug << "Unhandled instruction: " << inst->getName() << '\n';
+//            Debug << "Unhandled instruction: " << inst->getName() << '\n';
         }
     }
 
 private:
 
     void evalStoreInst(StoreInst *pInst, PTAInfo *pPTAInfo) {
+        Info << "evalStoreInst \n";
+        Value *from = pInst->getValueOperand();
+        Value *to = pInst->getPointerOperand();
+
+        if (pPTAInfo->hasPointer(to)) {
+            if (pPTAInfo->hasPointer(from) || isa<Function>(from))
+                pPTAInfo->setPointerAndPTS(to, std::set<Value*>{from});
+            else
+                Error << "Don't have from. \n";
+        }
+        else {
+            Error << "StoreInst don't have from pointer and to pointer in PTAInfo. \n";
+        }
 
     }
 
     void evalAllocaInst(AllocaInst *pInst, PTAInfo *pPTAInfo) {
-
+        Info << "evalAllocaInst \n";
+        auto *result = dyn_cast<Value>(pInst);
+        pPTAInfo->setPointerAndPTS(result, std::set<Value*>{});
     }
 
     void evalLoadInst(LoadInst *pInst, PTAInfo *pPTAInfo) {
+        Info << "evalLoadInst \n";
+        Value *pointer = pInst->getPointerOperand();
+        auto *result = dyn_cast<Value>(pInst);
 
+        // bind the %pointer's pts to %result's pts。
+        if (pPTAInfo->hasPointer(pointer)) {
+            auto pointerPTS = pPTAInfo->getPTS(pointer);
+            pPTAInfo->setPointerAndPTS(result, pointerPTS);
+        }
+        else {
+            Debug << "evalLoadInst fail! The Pointer that the loadInst loads from isn't exist in PTS! \n";
+        }
     }
 
     void evalGetElementPtrInst(GetElementPtrInst* pInst, PTAInfo * pPTAInfo) {
+        Info << "evalGetElementPtrInst \n";
+        Value *ptr = pInst->getPointerOperand();
+        auto *result = dyn_cast<Value>(pInst);
+
+        if (!pPTAInfo->hasPointer(ptr))
+            Debug << "The pointer in getelementptrInst haven't been in the PTAInfo. \n";
+
+        auto ptrPTS = pPTAInfo->getPTS(ptr);
+        if (ptrPTS.size() > 1)
+            Debug << "The structure pointer's PTS has more then one pointer. \n";
+
+        pPTAInfo->setPointerAndPTS(result, std::set<Value*>{});
+
+        if (ptrPTS.empty()) {  // store mode
+            ptrPTS.insert(result);
+            pPTAInfo->setPointerAndPTS(ptr, ptrPTS);
+        }
+        else {   // load mode
+            auto innerPtr = *(ptrPTS.begin());
+            if (!pPTAInfo->hasPointer(innerPtr))
+                Debug << "Wrong Pointer. \n";
+            pPTAInfo->setPointerAndPTS(result, std::set<Value*>{innerPtr});
+        }
 
     }
 
     void evalMemCpyInst(MemCpyInst* pInst, PTAInfo * pPTAInfo) {
-
+        Info << "evalMemCpyInst \n";
     }
 
     void evalReturnInst(ReturnInst* pInst, PTAInfo * pPTAInfo) {
-
+        Info << "evalReturnInst \n";
     }
 
     void evalCallInst(CallInst* pInst, PTAInfo * pPTAInfo) {
-
+        Info << "evalCallInst \n";
     }
 
 };
@@ -328,6 +390,8 @@ public:
         PTAVisitor visitor;
         DataflowResult<PTAInfo>::Type result; // {basicBlock: (pts_in, pts_out)}
         PTAInfo initVal{};
+
+
 
         // 假设最后一个函数是程序的入口函数
         auto f = M.rbegin(), e = M.rend();

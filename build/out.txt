@@ -1,0 +1,16 @@
+[32m[Info]: Current instruction: t_fptr10[0m [32m[Info]: evalAllocaInst 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: Current instruction: cmp10[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: Current instruction: p_fptr10[0m [32m[Info]: evalGetElementPtrInst 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: evalStoreInst 
+[0m [34m[Debug]: StoreInst don't have from pointer and to pointer in PTAInfo. 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: Current instruction: p_fptr110[0m [32m[Info]: evalGetElementPtrInst 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: evalStoreInst 
+[0m [34m[Debug]: StoreInst don't have from pointer and to pointer in PTAInfo. 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: Current instruction: p_fptr210[0m [32m[Info]: evalGetElementPtrInst 
+[0m [34m[Debug]: The structure pointer's PTS has more then one pointer. 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: evalLoadInst 
+[0m [32m[Info]: Current instruction: cmp310[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: Current instruction: p_fptr510[0m [32m[Info]: evalGetElementPtrInst 
+[0m [34m[Debug]: The structure pointer's PTS has more then one pointer. 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: evalLoadInst 
+[0m [32m[Info]: Current instruction: call10[0m [32m[Info]: evalCallInst 
+[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: Current instruction: 10[0m [32m[Info]: evalReturnInst 
+[0m 
