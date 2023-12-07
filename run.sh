@@ -1,5 +1,5 @@
 cd build
-./assignment3 ../bc/test04.bc
+./assignment3 ../bc/test20.bc
 
 #for test_file in ../bc/*.bc
 #do

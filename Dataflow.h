@@ -77,10 +77,10 @@ struct DataflowResult {
 /// @param result The results of the dataflow
 /// @initval the Initial dataflow value
 template<class T>
-void compForwardDataflow(Function *fn,
+T compForwardDataflow(Function *fn,
                          DataflowVisitor<T> *visitor,
                          typename DataflowResult<T>::Type *result,
-                         const T &initVal, T &entryInitVal) {
+                         T &initVal, T &entryInitVal) {
 
     std::set<BasicBlock *> worklist;
 
@@ -119,6 +119,9 @@ void compForwardDataflow(Function *fn,
             worklist.insert(*pi);
         }
     }
+
+    llvm::BasicBlock* retBB = &(fn->back());
+    return (*result)[retBB].second;
 }
 
 ///

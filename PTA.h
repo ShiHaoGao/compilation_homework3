@@ -257,6 +257,12 @@ public:
                 dest->setPointerAndPTS(ptr, srcPTS);  // 创建这个value，把src中的pts copy过来。
             } else {
                 auto destPTS = dest->getPTS(ptr);
+                if (!ptr->getType()->isPointerTy()) {
+                    destPTS.merge(srcPTS);
+                    dest->setPointerAndPTS(ptr, destPTS);
+                    continue;
+                }
+
                 if (ptr->getType()->getPointerElementType()->isStructTy() ||
                     ptr->getType()->getPointerElementType()->isArrayTy()) { // 如果value 是结构体指针类型
                     auto destPtr = *(destPTS.begin());
@@ -303,7 +309,7 @@ public:
         // 不处理调试相关的指令
         if (isa<DbgInfoIntrinsic>(inst)) return;
 
-        Info << "Current instruction: " << inst->getName() << '\n';
+//        Info << "Current instruction: " << inst->getName() << '\n';
 
         // 根据指令的类型去进行相应的处理操作
         if (auto *allocaInst = dyn_cast<AllocaInst>(inst)) {
@@ -317,6 +323,8 @@ public:
             evalGetElementPtrInst(getElementPtrInst, dfVal);
         } else if (auto *memCpyInst = dyn_cast<MemCpyInst>(inst)) {
             evalMemCpyInst(memCpyInst, dfVal);
+        } else if (auto *bitCastInst = dyn_cast<BitCastInst>(inst)) {
+            evalBitCastInst(bitCastInst, dfVal);
         } else if (auto *memSetInst = dyn_cast<MemSetInst>(inst)) {
             // 捕获但不需要处理，防止它被后面CallInst的处理逻辑捕获
         } else if (auto *returnInst = dyn_cast<ReturnInst>(inst)) {
@@ -412,18 +420,43 @@ private:
 
     void evalMemCpyInst(MemCpyInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalMemCpyInst \n";
+
+        // getSource()和getDest()函数可以自动处理BitCast，提取出最终的操作数
+        Value *source = pInst->getSource();
+        Value *dest = pInst->getDest();
+        pPTAInfo->setPointerAndPTS(dest, pPTAInfo->getPTS(source));
+
+    }
+
+    void evalBitCastInst(BitCastInst *pInst, PTAInfo *pPTAInfo) {
+        Info << "evalBitCastInst \n";
+        Value *ptr = pInst->getOperand(0);
+        auto *result = dyn_cast<Value>(pInst);
+
+        if (!pPTAInfo->hasPointer(ptr))
+            Error << "Don't has pointer in BitCastInst.\n";
+//        pPTAInfo->setPointerAndPTS(ptr, std::set<Value*>{result});
+        pPTAInfo->setPointerAndPTS(result, std::set<Value*>{ptr});
+
     }
 
     void evalReturnInst(ReturnInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalReturnInst \n";
+//        pInst->print(llvm::errs());
         Value *retValue = pInst->getReturnValue();
-        Value *func = pInst->getFunction();
-
-        if (retValue->getType()->isPointerTy() && pPTAInfo->hasPointer(retValue)) {
-            auto pts = pPTAInfo->getPTS(retValue);
-            pPTAInfo->setPointerAndPTS(func, pts);
+        auto *func = pInst->getFunction();
+        if (pInst->getFunction()->getReturnType()->isVoidTy() || !retValue->getType()->isPointerTy()) {
+            Info << "Return Type is not a Pointer. \n";
+            return ;
         }
 
+        if (!pPTAInfo->hasPointer(retValue))
+            Error << "ReturnInst don't have retValue in PTAInfo.\n";
+
+//        Info << "Has pointer return value. \n";
+        auto pts = pPTAInfo->getPTS(retValue);
+        pPTAInfo->setPointerAndPTS(func, pts);
+//        pPTAInfo->setPointerAndPTS(func, std::set<Value*>{});
     }
 
     void evalPhiNode(PHINode *phiNode, PTAInfo *pPTAInfo) {
@@ -443,7 +476,14 @@ private:
         Info << "evalCallInst \n";
         Value *funcPointer = pInst->getCalledOperand();
         unsigned lineno = pInst->getDebugLoc().getLine();
-        Error << lineno << funcPointer->getName();
+//        Error << lineno << funcPointer->getName();
+
+        // 对malloc进行特判
+        if (funcPointer->getName() == "malloc") {
+            functionCallResult[lineno] = std::set<std::string>{funcPointer->getName()};
+            pPTAInfo->setPointerAndPTS(dyn_cast<Value>(pInst), std::set<Value*>{});
+            return;
+        }
 
         if (functionCallResult.find(lineno) == functionCallResult.end())
             functionCallResult[lineno] = std::set<std::string>{};
@@ -462,6 +502,7 @@ private:
         std::set_union(funcNameSet.begin(), funcNameSet.end(), mayCallSet.begin(), mayCallSet.end(), std::inserter(mergedSet, mergedSet.begin()));
         functionCallResult[lineno] = mergedSet;
 
+        bool flag = false;
         // 进入新函数中。
         for (auto *f : mayCallFuncSet) {
             if (!isa<Function>(f))
@@ -488,20 +529,26 @@ private:
                     Error << "Don't have actual Arg pointer in callInst.\n";
 
                 // 将实参的pts绑定到形参上
-//                if (pPTAInfo->hasPointer(calleeArg)) { // 如果形参已经被绑定过了，只需要合并pts。
-//                    auto calleePts = pPTAInfo->getPTS(calleeArg);
-//                    calleePts.merge(callerPts);
-//                    pPTAInfo->setPointerAndPTS(calleeArg, calleePts);
-//                }
-//                else {  // 没有绑定过，将pts绑定上去。
+                if (pPTAInfo->hasPointer(calleeArg)) { // 如果形参已经被绑定过了，只需要合并pts。
+                    auto calleePts = pPTAInfo->getPTS(calleeArg);
+                    calleePts.merge(callerPts);
+                    pPTAInfo->setPointerAndPTS(calleeArg, calleePts);
+                }
+                else {  // 没有绑定过，将pts绑定上去。
                     pPTAInfo->setPointerAndPTS(calleeArg, callerPts);
-//                }
+                }
             }
-
 
             // 改变控制流
             PTAInfo initVal{};
-            compForwardDataflow(func, this, dfResult, initVal, *pPTAInfo);
+            auto newPTAInfo = compForwardDataflow(func, this, dfResult, initVal, *pPTAInfo);
+
+            if (!flag) {
+                *pPTAInfo = newPTAInfo;
+                flag = true;
+            }
+            else
+                merge(pPTAInfo, newPTAInfo);
 
             // 返回值绑定
             auto *callResult = dyn_cast<Value>(pInst);
@@ -509,9 +556,20 @@ private:
                 continue;
             Info << "Function " << func->getName() << " has a pointer return type.\n";
 
-            if (!pPTAInfo->hasPointer(func))
+            if (!newPTAInfo.hasPointer(func))
                 Error << "Don't has retValue pts\n";
-            pPTAInfo->setPointerAndPTS(callResult, pPTAInfo->getPTS(func));
+
+            auto funcPTS = pPTAInfo->getPTS(func);
+            if (pPTAInfo->hasPointer(callResult)) {
+                auto callResPts = pPTAInfo->getPTS(callResult);
+                callResPts.merge(funcPTS);
+                pPTAInfo->setPointerAndPTS(callResult, callResPts);
+//                Debug << 1;
+            }
+            else {
+                pPTAInfo->setPointerAndPTS(callResult, funcPTS);
+//                Debug << 2;
+            }
         }
 
     }
@@ -550,8 +608,8 @@ public:
     PTA() : ModulePass(ID) {}
 
     bool runOnModule(Module &M) override {
-        errs() << "Hello: ";
-        errs().write_escaped(M.getName()) << '\n';
+//        errs() << "Hello: ";
+//        errs().write_escaped(M.getName()) << '\n';
         M.dump();
         errs() << "------------------------------\n";
 
