@@ -244,7 +244,7 @@ inline raw_ostream &operator<<(raw_ostream &out, const PTAInfo &ptaInfo) {
 
 class PTAVisitor : public DataflowVisitor<struct PTAInfo> {
 public:
-    PTAVisitor() {}
+    explicit PTAVisitor(DataflowResult<PTAInfo>::Type* res): dfResult(res) {}
 
     void merge(PTAInfo *dest, const PTAInfo &src) override {
 
@@ -342,7 +342,7 @@ public:
     }
 
 private:
-
+    DataflowResult<PTAInfo>::Type* dfResult;
     std::map<unsigned, std::set<std::string>> functionCallResult;
 
     void evalStoreInst(StoreInst *pInst, PTAInfo *pPTAInfo) {
@@ -413,26 +413,71 @@ private:
 
     void evalReturnInst(ReturnInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalReturnInst \n";
+        Value *retValue = pInst->getReturnValue();
+        Value *func = pInst->getFunction();
+
+        if (retValue->getType()->isPointerTy() && pPTAInfo->hasPointer(retValue)) {
+            auto pts = pPTAInfo->getPTS(retValue);
+            pPTAInfo->setPointerAndPTS(func, pts);
+        }
+
     }
 
     void evalCallInst(CallInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalCallInst \n";
-        auto *callResult = dyn_cast<Value>(pInst);
         Value *funcPointer = pInst->getCalledOperand();
         unsigned lineno = pInst->getDebugLoc().getLine();
 
         if (functionCallResult.find(lineno) == functionCallResult.end())
             functionCallResult[lineno] = std::set<std::string> {};
-
+        // 构建调用集合
         auto mayCallFuncSet = buildMayCallSet(funcPointer, pPTAInfo);
-        // 在这里分别调用进去
 
+        // 保存调用点信息
         std::set<std::string> mayCallSet;
         for (auto* val : mayCallFuncSet) {
             mayCallSet.insert(val->getName());
         }
-
         functionCallResult[lineno].merge(mayCallSet);
+
+        // 进入新函数中。
+        for (auto *f : mayCallFuncSet) {
+            if (!isa<Function>(f))
+                Error << "mayCallFuncSet has wrong val that isn't a Function. \n";
+            auto* func = dyn_cast<Function>(f);
+
+            // 如果是指针类型，进行参数绑定
+            for (unsigned i = 0, num = pInst->getNumArgOperands(); i < num; i++) {
+                auto *callerArg = pInst->getArgOperand(i);
+                // 只处理指针传递就可以了，相当于load
+                if (!callerArg->getType()->isPointerTy())
+                    continue;
+
+                auto *calleeArg = func->getArg(i);
+                auto callerPts = pPTAInfo->getPTS(callerArg);
+                if (pPTAInfo->hasPointer(calleeArg)) { // 如果形参已经被绑定过了，只需要合并pts。
+                    auto calleePts = pPTAInfo->getPTS(calleeArg);
+                    calleePts.merge(callerPts);
+                    pPTAInfo->setPointerAndPTS(calleeArg, calleePts);
+                }
+                else {  // 没有绑定过，将pts绑定上去。
+                    pPTAInfo->setPointerAndPTS(calleeArg, callerPts);
+                }
+            }
+            // 改变控制流
+
+            compForwardDataflow(func, this, dfResult, *pPTAInfo);
+
+            // 返回值绑定
+            auto *callResult = dyn_cast<Value>(pInst);
+            if (!func->getReturnType()->isPointerTy())
+                continue;
+            Info << "Function " << func->getName() << " has a pointer return type.\n";
+
+            if (!pPTAInfo->hasPointer(func))
+                Error << "Don't has retValue pts\n";
+            pPTAInfo->setPointerAndPTS(callResult, pPTAInfo->getPTS(func));
+        }
 
     }
 
@@ -441,7 +486,6 @@ private:
 
         std::set<Value*> worklist;
         worklist.insert(funcPointer);
-        Debug << "1";
         while (!worklist.empty()) {
             auto val = *worklist.begin();
             worklist.erase(val);
@@ -456,7 +500,6 @@ private:
                 Error << "Don't have been called function Pointer in PTAInfo. \n";
             }
         }
-        Debug << "2";
 
         return mayCallSet;
     }
@@ -477,8 +520,9 @@ public:
         M.dump();
         errs() << "------------------------------\n";
 
-        PTAVisitor visitor;
+
         DataflowResult<PTAInfo>::Type result; // {basicBlock: (pts_in, pts_out)}
+        PTAVisitor visitor(&result);
         PTAInfo initVal{};
 
 
