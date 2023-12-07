@@ -179,6 +179,7 @@ struct PTAInfo {
     }
 
     std::set<Value *> getPTS(Value *p) const {
+        assert(info.find(p) != info.end());
         return info.find(p)->second;
     }
 
@@ -322,6 +323,8 @@ public:
             evalReturnInst(returnInst, dfVal);
         } else if (auto *callInst = dyn_cast<CallInst>(inst)) {
             evalCallInst(callInst, dfVal);
+        } else if (auto *phiNode = dyn_cast<PHINode>(inst) ) {
+            evalPhiNode(phiNode, dfVal);
         } else {
 //            Debug << "Unhandled instruction: " << inst->getName() << '\n';
         }
@@ -383,21 +386,21 @@ private:
 
     void evalGetElementPtrInst(GetElementPtrInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalGetElementPtrInst \n";
-        Value *ptr = pInst->getPointerOperand();
+        Value *structurePtr = pInst->getPointerOperand();
         auto *result = dyn_cast<Value>(pInst);
 
-        if (!pPTAInfo->hasPointer(ptr))
+        if (!pPTAInfo->hasPointer(structurePtr))
             Debug << "The pointer in getelementptrInst haven't been in the PTAInfo. \n";
 
-        auto ptrPTS = pPTAInfo->getPTS(ptr);
+        auto ptrPTS = pPTAInfo->getPTS(structurePtr);
         if (ptrPTS.size() > 1)
             Debug << "The structure pointer's PTS has more then one pointer. \n";
 
         pPTAInfo->setPointerAndPTS(result, std::set < Value * > {});
 
-        if (ptrPTS.empty()) {  // store mode
-            ptrPTS.insert(result);
-            pPTAInfo->setPointerAndPTS(ptr, ptrPTS);
+        if (ptrPTS.empty() || isa<StoreInst>(pInst->getNextNode())) {  // store mode
+//            ptrPTS.insert(result);
+            pPTAInfo->setPointerAndPTS(structurePtr, std::set < Value * > {result});
         } else {   // load mode
             auto innerPtr = *(ptrPTS.begin());
             if (!pPTAInfo->hasPointer(innerPtr))
@@ -423,22 +426,41 @@ private:
 
     }
 
+    void evalPhiNode(PHINode *phiNode, PTAInfo *pPTAInfo) {
+        Info << "evalPhiNode \n";
+        auto* result = dyn_cast<Value>(phiNode);
+        //
+        std::set<Value*> pts;
+        for (Value *val: phiNode->incoming_values()) {
+            if (isa<ConstantPointerNull>(val))
+                continue;
+            pts.insert(val);
+        }
+        pPTAInfo->setPointerAndPTS(result, pts);
+    }
+
     void evalCallInst(CallInst *pInst, PTAInfo *pPTAInfo) {
         Info << "evalCallInst \n";
         Value *funcPointer = pInst->getCalledOperand();
         unsigned lineno = pInst->getDebugLoc().getLine();
+        Error << lineno << funcPointer->getName();
 
         if (functionCallResult.find(lineno) == functionCallResult.end())
-            functionCallResult[lineno] = std::set<std::string> {};
+            functionCallResult[lineno] = std::set<std::string>{};
+
         // 构建调用集合
         auto mayCallFuncSet = buildMayCallSet(funcPointer, pPTAInfo);
 
         // 保存调用点信息
         std::set<std::string> mayCallSet;
         for (auto* val : mayCallFuncSet) {
+//            Error << val->getName() ;
             mayCallSet.insert(val->getName());
         }
-        functionCallResult[lineno].merge(mayCallSet);
+        auto funcNameSet = functionCallResult[lineno];
+        std::set<std::string> mergedSet;
+        std::set_union(funcNameSet.begin(), funcNameSet.end(), mayCallSet.begin(), mayCallSet.end(), std::inserter(mergedSet, mergedSet.begin()));
+        functionCallResult[lineno] = mergedSet;
 
         // 进入新函数中。
         for (auto *f : mayCallFuncSet) {
@@ -448,25 +470,38 @@ private:
 
             // 如果是指针类型，进行参数绑定
             for (unsigned i = 0, num = pInst->getNumArgOperands(); i < num; i++) {
-                auto *callerArg = pInst->getArgOperand(i);
+                auto *callerArg = pInst->getArgOperand(i); // 取得实参。
                 // 只处理指针传递就可以了，相当于load
                 if (!callerArg->getType()->isPointerTy())
                     continue;
+                auto *calleeArg = func->getArg(i); // 取得形参。
 
-                auto *calleeArg = func->getArg(i);
-                auto callerPts = pPTAInfo->getPTS(callerArg);
-                if (pPTAInfo->hasPointer(calleeArg)) { // 如果形参已经被绑定过了，只需要合并pts。
-                    auto calleePts = pPTAInfo->getPTS(calleeArg);
-                    calleePts.merge(callerPts);
-                    pPTAInfo->setPointerAndPTS(calleeArg, calleePts);
+                // 取得实参的pts
+                std::set<Value*> callerPts;
+                if (pPTAInfo->hasPointer(callerArg)) {
+                    callerPts = pPTAInfo->getPTS(callerArg);
                 }
-                else {  // 没有绑定过，将pts绑定上去。
+                else if (isa<Function>(callerArg)) {
+                    callerPts.insert(callerArg);
+                }
+                else
+                    Error << "Don't have actual Arg pointer in callInst.\n";
+
+                // 将实参的pts绑定到形参上
+//                if (pPTAInfo->hasPointer(calleeArg)) { // 如果形参已经被绑定过了，只需要合并pts。
+//                    auto calleePts = pPTAInfo->getPTS(calleeArg);
+//                    calleePts.merge(callerPts);
+//                    pPTAInfo->setPointerAndPTS(calleeArg, calleePts);
+//                }
+//                else {  // 没有绑定过，将pts绑定上去。
                     pPTAInfo->setPointerAndPTS(calleeArg, callerPts);
-                }
+//                }
             }
-            // 改变控制流
 
-            compForwardDataflow(func, this, dfResult, *pPTAInfo);
+
+            // 改变控制流
+            PTAInfo initVal{};
+            compForwardDataflow(func, this, dfResult, initVal, *pPTAInfo);
 
             // 返回值绑定
             auto *callResult = dyn_cast<Value>(pInst);
@@ -532,7 +567,7 @@ public:
         for (; (f->isIntrinsic() || f->empty()) && f != e; f++) {
         }
 
-        compForwardDataflow(&*f, &visitor, &result, initVal);
+        compForwardDataflow(&*f, &visitor, &result, initVal, initVal);
         printDataflowResult<PTAInfo>(errs(), result);
         visitor.printResults(errs());
         return false;

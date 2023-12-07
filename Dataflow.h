@@ -80,14 +80,19 @@ template<class T>
 void compForwardDataflow(Function *fn,
                          DataflowVisitor<T> *visitor,
                          typename DataflowResult<T>::Type *result,
-                         const T &initval) {
+                         const T &initVal, T &entryInitVal) {
 
     std::set<BasicBlock *> worklist;
 
     // Initialize the worklist with all exit blocks
     for (auto & bi : *fn) {
         BasicBlock *bb = &bi;
-        result->insert(std::make_pair(bb, std::make_pair(initval, initval)));
+        if (bb == &(fn->getEntryBlock()))
+            (*result)[bb] = std::make_pair(entryInitVal, initVal);
+//            result->insert(std::make_pair(bb, ));
+        else
+            (*result)[bb] = std::make_pair(initVal, initVal);
+//            result->insert(std::make_pair(bb, std::make_pair(initVal, initVal)));
         worklist.insert(bb);
     }
 

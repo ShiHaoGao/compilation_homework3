@@ -47,13 +47,13 @@ private:
 
 void Log::output() {
     if (_level == LogLevel::info) {
-        llvm::errs() << "\033[32m[Info]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[32m[Info]: " + _message + "\033[0m ";
     } else if (_level == LogLevel::warning) {
-        llvm::errs() << "\033[35m[Warning]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[35m[Warning]: " + _message + "\033[0m ";
     } else if (_level == LogLevel::error) {
-        llvm::errs() << "\033[31m[Error]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[31m[Error]: " + _message + "\033[0m ";
     } else {
-        llvm::errs() << "\033[34m[Debug]: " << _message << "\033[0m ";
+        llvm::errs() << "\033[34m[Debug]: " + _message + "\033[0m ";
     }
 }
 
