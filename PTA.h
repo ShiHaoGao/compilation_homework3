@@ -504,8 +504,12 @@ private:
         functionCallResult[lineno] = mergedSet;
 
         bool flag = false;
+        PTAInfo tmp = *pPTAInfo; // 保存程序点入口状态
+        std::vector<PTAInfo> retPoints;  // 保存程序点call结束状态集合
         // 进入新函数中。
         for (auto *f : mayCallFuncSet) {
+            *pPTAInfo = tmp;
+
             if (!isa<Function>(f))
                 Error << "mayCallFuncSet has wrong val that isn't a Function. \n";
             auto* func = dyn_cast<Function>(f);
@@ -544,39 +548,35 @@ private:
             PTAInfo initVal{};
             auto newPTAInfo = compForwardDataflow(func, this, dfResult, initVal, *pPTAInfo);
 
-            if (!flag) {
-                *pPTAInfo = newPTAInfo;
-                flag = true;
-            }
-            else
-                merge(pPTAInfo, newPTAInfo);
+            *pPTAInfo = newPTAInfo;
 
             // 返回值绑定
             auto *callResult = dyn_cast<Value>(pInst);
             if (!func->getReturnType()->isPointerTy()) {
                 Info << "Function " << func->getName() << " don't has a pointer return type. Don't need to bind retVal. \n";
-                continue;
-            }
-
-            Info << "Function " << func->getName() << " has a pointer return type. Need to bind retVal. \n";
-
-            if (!newPTAInfo.hasPointer(func))
-                Error << "Don't has retValue pts\n";
-
-            auto funcPTS = pPTAInfo->getPTS(func);
-            if (pPTAInfo->hasPointer(callResult)) {
-                auto callResPts = pPTAInfo->getPTS(callResult);
-
-                callResPts.merge(funcPTS);
-                pPTAInfo->setPointerAndPTS(callResult, callResPts);
-//                Debug << 1;
             }
             else {
+                Info << "Function " << func->getName() << " has a pointer return type. Need to bind retVal. \n";
+
+                if (!newPTAInfo.hasPointer(func))
+                    Error << "Don't has retValue pts\n";
+
+                auto funcPTS = pPTAInfo->getPTS(func);
                 pPTAInfo->setPointerAndPTS(callResult, funcPTS);
-//                Debug << 2;
             }
+
+            retPoints.push_back(*pPTAInfo);
         }
 
+        // 合并所有返回程序点的状态。
+        if (retPoints.size() == 1) {
+            *pPTAInfo = retPoints[0];
+            return ;
+        }
+        *pPTAInfo = retPoints[0];
+        for (int i = 1; i < retPoints.size(); ++i) {
+            merge(pPTAInfo, retPoints[i]);
+        }
     }
 
     std::set<Value*> buildMayCallSet(Value* funcPointer, PTAInfo* pPTAInfo) {
