@@ -257,7 +257,7 @@ public:
                 dest->setPointerAndPTS(ptr, srcPTS);  // 创建这个value，把src中的pts copy过来。
             } else {
                 auto destPTS = dest->getPTS(ptr);
-                if (!ptr->getType()->isPointerTy()) {
+                if (ptr->getType()->isFunctionTy()) {
                     destPTS.merge(srcPTS);
                     dest->setPointerAndPTS(ptr, destPTS);
                     continue;
@@ -294,7 +294,8 @@ public:
                                        std::inserter(mergedSet, mergedSet.begin()));
                         dest->setPointerAndPTS(ptr, mergedSet);
                     }
-                } else { // 非结构体指针类型
+                }
+                else { // 非结构体指针类型
                     std::set<Value *> mergedSet;
                     std::set_union(srcPTS.begin(), srcPTS.end(), destPTS.begin(), destPTS.end(),
                                    std::inserter(mergedSet, mergedSet.begin()));
@@ -552,9 +553,12 @@ private:
 
             // 返回值绑定
             auto *callResult = dyn_cast<Value>(pInst);
-            if (!func->getReturnType()->isPointerTy())
+            if (!func->getReturnType()->isPointerTy()) {
+                Info << "Function " << func->getName() << " don't has a pointer return type. Don't need to bind retVal. \n";
                 continue;
-            Info << "Function " << func->getName() << " has a pointer return type.\n";
+            }
+
+            Info << "Function " << func->getName() << " has a pointer return type. Need to bind retVal. \n";
 
             if (!newPTAInfo.hasPointer(func))
                 Error << "Don't has retValue pts\n";
@@ -562,6 +566,7 @@ private:
             auto funcPTS = pPTAInfo->getPTS(func);
             if (pPTAInfo->hasPointer(callResult)) {
                 auto callResPts = pPTAInfo->getPTS(callResult);
+
                 callResPts.merge(funcPTS);
                 pPTAInfo->setPointerAndPTS(callResult, callResPts);
 //                Debug << 1;
